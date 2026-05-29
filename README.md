@@ -1,10 +1,10 @@
 # claude-code-migrate
 
-The missing migration guide for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Move your sessions, settings, and MCP server registry between computers without losing transcripts to the default 30-day cleanup.
+Migrate [Claude Code](https://docs.anthropic.com/en/docs/claude-code) state between machines, or rebind a project's session history to a different path on the same machine. Preserves sessions, settings, and MCP server registry across the move; avoids the default 30-day cleanup.
 
-Anthropic doesn't ship native session export ([issue #18645](https://github.com/anthropics/claude-code/issues/18645)). This repo is one engineer's working notes on the manual process: what to back up, what to restore, what to watch out for.
+Anthropic doesn't ship native session export ([issue #18645](https://github.com/anthropics/claude-code/issues/18645)).
 
-**Tested on:** macOS Tahoe, Claude Code v2.1.x, Mac-to-Mac. Linux is not tested — the script's path-rewrite logic hardcodes `/Users/`, so the same-username case probably works and the different-username case won't without edits.
+**Tested on:** macOS Tahoe, Claude Code v2.1.x. Mac-to-Mac migration and same-machine path remap both verified end-to-end. Linux is not tested: `backup.sh`, `remap.sh`, and the same-username path of `restore.sh` are filesystem-prefix-agnostic and likely work. The different-username path of `restore.sh` hardcodes `/Users/` and won't work on Linux without edits.
 
 ---
 
@@ -37,7 +37,7 @@ claude --login
 claude --resume
 ```
 
-That's the entire migration. Read on for the why, the gotchas, and the different-username path.
+That's the entire migration. Read on for the mental model, the cleanup behavior, and the different-username path.
 
 ---
 
@@ -49,9 +49,9 @@ Three independent pieces have to move between machines. None of them touch each 
 |---|---|---|
 | **Code** | wherever you keep it (`~/projects/`, `~/work/`, etc.) | `git clone` for repos; you handle non-git dirs |
 | **Session transcripts + auxiliary state** | `~/.claude/` | `rsync` (this repo) |
-| **Global config: auth, MCP servers, trust state** | `~/.claude.json` (in `$HOME`, NOT `~/.claude/`) | `cp` (easy to miss; most migration guides skip it) |
+| **Global config: auth, MCP servers, trust state** | `~/.claude.json` (in `$HOME`, NOT `~/.claude/`) | `cp` (easy to miss) |
 
-**Why path-matching matters.** Each session transcript lives at `~/.claude/projects/<slug>/<uuid>.jsonl`, where `<slug>` is the absolute cwd with `/` replaced by `-`. Example: `/Users/alice/projects/foo` → `-Users-alice-projects-foo`. When you run `claude --resume`, Claude reads transcripts from the slug matching your current `pwd`. If your code lives at the same absolute path on the new machine, resume "just works." If the username or paths changed, slugs and embedded path strings need rewriting.
+**Why path-matching matters.** Each session transcript lives at `~/.claude/projects/<slug>/<uuid>.jsonl`, where `<slug>` is the absolute cwd with `/` replaced by `-`. Example: `/Users/alice/projects/foo` → `-Users-alice-projects-foo`. When you run `claude --resume`, Claude reads transcripts from the slug matching your current `pwd`. If your code lives at the same absolute path on the new machine, resume finds the sessions automatically. If the username or paths changed, slugs and embedded path strings need rewriting.
 
 ---
 
@@ -71,9 +71,9 @@ Three independent pieces have to move between machines. None of them touch each 
 
 ---
 
-## Critical: the 30-day cleanup gotcha
+## The 30-day cleanup
 
-Claude Code prunes session transcripts older than **30 days** at startup. The age threshold is controlled by `cleanupPeriodDays` in `~/.claude/settings.json` (default: 30 if absent). Files are hard-deleted — no trash, no archive, no in-app recovery.
+Claude Code prunes session transcripts older than **30 days** at startup. The age threshold is controlled by `cleanupPeriodDays` in `~/.claude/settings.json` (default: 30 if absent). Files are hard-deleted; no in-app recovery.
 
 **Implication for migration:** if you restore a backup containing month-old sessions and then launch Claude before fixing the setting, it deletes them immediately. Order matters.
 
@@ -86,17 +86,15 @@ jq '. + {cleanupPeriodDays: 999999}' ~/.claude/settings.json > /tmp/s.json && mv
 jq '.cleanupPeriodDays' ~/.claude/settings.json     # confirms: 999999
 ```
 
-(`999999` days ≈ 2700 years. The setting accepts any positive integer; `0` is rejected.)
+(Any large positive integer works.)
 
 **Set this BEFORE restoring transcripts on the new machine.**
 
-**Also set it on the old machine** — and the sooner the better. Until you do, every Claude Code startup hard-deletes sessions older than 30 days. Backups capture only what's currently on disk, so a backup run today after months without the fix gives you a 30-day rolling window, not your full history. Setting `cleanupPeriodDays: 999999` on the old machine stops the bleeding; sessions from that point forward persist indefinitely. The ones already pruned are gone unless you have an external backup.
+**Also set it on the old machine.** Until you do, every Claude Code startup hard-deletes sessions older than 30 days. Backups capture only what's currently on disk, so a backup run today after months without the fix gives you a 30-day rolling window, not your full history. Setting `cleanupPeriodDays: 999999` on the old machine prevents further pruning; sessions from that point forward persist indefinitely. The ones already pruned are gone unless you have an external backup.
 
 ---
 
 ## Backup (on the machine with the sessions)
-
-Two equivalent ways. Pick one.
 
 ### Option A — alias (set once, run anytime)
 
@@ -107,7 +105,7 @@ source ~/.zshrc
 claude-backup
 ```
 
-Re-runs are incremental (`rsync`). Cheap to run nightly via cron or just whenever you remember.
+Re-runs are incremental (`rsync`). Cheap to run on a schedule via cron.
 
 ### Option B — explicit commands
 
@@ -145,7 +143,7 @@ ls -la ~/ClaudeCodeBackups/.claude.json.snapshot
 
 ## Restore (on the new machine, same username)
 
-Run `whoami` first. If it matches the username on the source machine (i.e. all your slugs start with `-Users-<this_user>-`), follow this section. Otherwise jump to ["Restore (different username)"](#restore-different-username) below.
+Run `whoami`. If it matches the source machine, follow this section; otherwise see ["Restore (different username)"](#restore-different-username) below.
 
 ```bash
 # 1. Disable the 30-day cleanup BEFORE anything else.
@@ -205,7 +203,7 @@ jq -r '.projects | keys | length' ~/.claude.json
 
 ## Restore (different username)
 
-The new machine's `whoami` doesn't match the old machine's. Both the slug directory names AND the path strings embedded inside each `*.jsonl` need rewriting.
+The new machine's `whoami` doesn't match the old machine's. Both the slug directory names and the path strings inside each `*.jsonl` need rewriting.
 
 The `restore.sh` script auto-detects this and handles it. If you'd rather do it manually:
 
@@ -230,7 +228,7 @@ for slug in -Users-"$SOURCE_USER"-*; do
 done
 ```
 
-The `sed` rewrite covers every field a path might appear in: `cwd`, `file_path`, `filePath`, `path`, and embedded paths inside `command` strings. Auxiliary directories (`todos/`, `shell-snapshots/`, etc.) are skipped in this path; most resumes work fine without them.
+The `sed` covers the path fields in transcripts: `cwd`, `file_path`, `filePath`, `path`, and embedded paths in `command` strings. Auxiliary directories (`todos/`, `shell-snapshots/`, etc.) are skipped in this path; resume works without them in most cases.
 
 `~/.claude.json`'s `projects` map is keyed by absolute path too — restore it with the same sed:
 
@@ -240,30 +238,58 @@ sed "s|/Users/$SOURCE_USER/|/Users/$TARGET_USER/|g" "$BACKUP/.claude.json.snapsh
 
 ---
 
-## FAQ / gotchas
+## Rebind sessions to a different path (same machine)
 
-**The new machine launched Claude before I disabled cleanup. What now?** If the restore had already happened, transcripts older than 30 days are gone from `~/.claude/`. Recoverable from the backup directory — set `cleanupPeriodDays` first, then re-run the restore.
+If you've moved or renamed a project directory — or you want to retarget a project's session history to a different path on the same machine — use `scripts/remap.sh`. Both the slug directories under `~/.claude/projects/` and the path strings embedded inside the `.jsonl` transcripts (cwd, file_path, command args, etc.) get rewritten, and `~/.claude.json`'s projects map is updated to match.
 
-**Resume picker is empty / shows fewer sessions than expected.** The slug doesn't match your current `pwd`. Run `pwd` and compare to what's encoded in the slug name. Common cause: cloning a repo to a slightly different path (e.g. `~/code/foo` vs `~/projects/foo`).
+```bash
+./scripts/remap.sh <old_path> <new_path>
 
-**Resume opens but says "no conversation found with session ID."** The session UUID in `~/.claude.json`'s history pointer references a transcript that doesn't exist at the slug Claude is looking in. Either the file genuinely wasn't restored, or the slug doesn't match. See [#41344](https://github.com/anthropics/claude-code/issues/41344).
+# Example: you moved your code from ~/code to ~/dev
+./scripts/remap.sh /Users/alice/code /Users/alice/dev
+```
+
+Effect: every slug rooted under the old path is renamed to its new-path equivalent (`-Users-alice-code-foo` → `-Users-alice-dev-foo`), all embedded paths inside the `.jsonl` files (cwd, file_path, command strings) are rewritten, and `~/.claude.json`'s projects map keys are updated — preserving per-project trust state and config.
+
+Constraints:
+- Neither path needs to exist on disk — the script operates purely on the path strings encoded in `~/.claude/`. Useful for retargeting before/after the directory move.
+- The new path's slug must not already exist (the script refuses with a clear error). If you want to merge two projects' histories, do that manually.
+- Matching is by actual cwd inside each `.jsonl`, not by slug-name pattern — this disambiguates the encoding quirk where `/Users/alice/code/foo` and `/Users/alice/code-foo` produce the same slug `-Users-alice-code-foo`. The script only touches slugs whose real cwd is under the old path.
+
+A safety backup of `~/.claude.json` is written to `~/.claude.json.before-remap-<timestamp>` before the projects map is rewritten.
+
+Verify after running:
+```bash
+cd /Users/alice/dev          # or any subpath you remapped
+claude --resume               # picker should show the rebound sessions
+```
+
+---
+
+## FAQ
+
+**I launched Claude on the new machine before disabling cleanup.** If the restore had already happened, transcripts older than 30 days are gone from `~/.claude/`. Recoverable from the backup directory — set `cleanupPeriodDays` first, then re-run the restore.
+
+**Resume picker is empty / shows fewer sessions than expected.** The slug doesn't match your current `pwd`. Run `pwd` and compare to what's encoded in the slug name. Common cause: cloning a repo to a slightly different path (e.g. `~/code/foo` vs `~/projects/foo`). Fix: either move the code to the matching path, or run `scripts/remap.sh` to rebind the session history to the new path.
+
+**A session shows up in the resume picker but errors with "no conversation found with session ID" when I open it.** The picker entry references a transcript file that isn't where Claude expects it — either the `.jsonl` wasn't restored, or the slug doesn't match the session's cwd. See [#41344](https://github.com/anthropics/claude-code/issues/41344).
 
 **`claude --continue` doesn't pick up where I left off on the old machine.** The "current session" pointer doesn't survive migration. Use `claude --resume` and pick the session from the list.
 
 **MCP server X isn't working.** `claude mcp list` should show it. If yes but functionality fails, it's likely an OAuth re-auth — trigger the server's auth flow or just use it once and respond to the prompt.
 
-**Auxiliary dirs are huge — do I really need them?** Helpful but not required.
+**Are the auxiliary directories required?** Helpful but not required.
 - `todos/` — TaskCreate/TaskList state per session
 - `shell-snapshots/` — `cd` history / shell env per session (improves Bash tool fidelity on resume)
 - `file-history/` — Edit tool undo history
-- `paste-cache/` / `image-cache/` — pastes referenced in transcripts (may be referenced by resumed sessions)
+- `paste-cache/` / `image-cache/` — files pasted into chats and images shown in transcripts
 - `session-env/` — misc per-session metadata
 
 Skip them in low-disk situations; resume works without them.
 
-**The backup folder is in iCloud / Dropbox / Google Drive — should I be worried?** It contains your Anthropic auth token (in `.claude.json.snapshot`), API keys embedded in MCP configs (e.g. Exa), and every conversation transcript. Treat it as you would your shell history file: fine for personal cloud storage if you trust that provider with credentials, not fine for sharing. iCloud's many-small-files sync is also painfully slow — zip the backup before transferring.
+**Is it safe to keep the backup folder in iCloud / Dropbox / Google Drive?** It contains your Anthropic auth token (in `.claude.json.snapshot`), API keys embedded in MCP configs (e.g. Exa), and every conversation transcript. Treat it as you would your shell history file: fine for personal cloud storage if you trust that provider with credentials, not fine for sharing. iCloud's many-small-files sync is also painfully slow — zip the backup before transferring.
 
-**My old machine had `~/Library` permissions blocking writes during migration.** macOS sandboxing varies. If a copy fails with "Operation not permitted," try running from Terminal rather than an IDE-integrated shell, or grant Full Disk Access to your terminal in System Settings → Privacy & Security.
+**Copy fails with "Operation not permitted" on `~/Library` paths.** macOS sandboxing — run from Terminal directly rather than an IDE-integrated shell, or grant Full Disk Access to your terminal in System Settings → Privacy & Security.
 
 ---
 
@@ -283,10 +309,10 @@ Skip them in low-disk situations; resume works without them.
 - [Issues #52565](https://github.com/anthropics/claude-code/issues/52565), [#58607](https://github.com/anthropics/claude-code/issues/58607) — MCP OAuth persistence quirks
 - [code.claude.com session-storage docs](https://code.claude.com/docs/en/agent-sdk/session-storage) — semi-official reference for the on-disk layout (Agent SDK doc, but the layout is shared with the CLI)
 
-PRs welcome. Bug reports also welcome; this is one person's working notes on a workflow Anthropic will eventually replace with something better.
+PRs and bug reports welcome.
 
 ---
 
 ## License
 
-MIT. Use at your own risk; test on non-critical data first.
+MIT.

@@ -9,10 +9,9 @@
 # Where <backup_dir> is the destination passed to backup.sh on the old machine
 # (e.g. ~/ClaudeCodeBackups). Must contain a projects/ subdir.
 #
-# PREREQUISITE: edit ~/.claude/settings.json BEFORE running, adding:
-#   "cleanupPeriodDays": 999999
-# Otherwise the default 30-day cleanup fires on next Claude launch and prunes
-# the sessions you just restored.
+# The script warns if cleanupPeriodDays isn't set in ~/.claude/settings.json
+# (default-30 prunes restored sessions on next Claude launch). Set it before
+# running for a clean run, or respond to the warning prompt.
 set -e
 
 if [[ -z "$1" ]]; then
