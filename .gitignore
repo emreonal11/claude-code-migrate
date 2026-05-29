@@ -1,0 +1,14 @@
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Never commit anyone's actual Claude data — these patterns guard against
+# accidentally adding personal sessions/snapshots to the repo.
+*.jsonl
+*.snapshot
+.claude.json*
+ClaudeCodeBackups/
+ClaudeCodeBackupsArchive/
