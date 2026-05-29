@@ -51,18 +51,25 @@ echo "This username:   $TARGET_USER"
 echo "Sessions:        $SESSION_COUNT (including subagent transcripts)"
 echo ""
 
-# Warn if cleanupPeriodDays isn't set high — the default-30 will re-prune
+# Warn if cleanupPeriodDays isn't set high — the default-30 will re-prune.
+# Three cases to handle: file missing entirely (fresh Claude install), file
+# exists but key missing, file exists with key set.
 SETTINGS="$HOME/.claude/settings.json"
+CURRENT_RETENTION="missing"
 if [[ -f "$SETTINGS" ]]; then
   CURRENT_RETENTION=$(jq -r '.cleanupPeriodDays // "null"' "$SETTINGS" 2>/dev/null || echo "unknown")
-  if [[ "$CURRENT_RETENTION" == "null" || "$CURRENT_RETENTION" == "unknown" ]]; then
-    echo "WARNING: ~/.claude/settings.json has no cleanupPeriodDays — Claude will"
-    echo "prune sessions older than 30 days on next launch. Set it before restoring:"
-    echo "  jq '. + {cleanupPeriodDays: 999999}' $SETTINGS > $SETTINGS.tmp && mv $SETTINGS.tmp $SETTINGS"
-    echo ""
-    read -p "Continue anyway? (y/n) " -n 1 -r; echo ""
-    [[ $REPLY =~ ^[Yy]$ ]] || exit 0
-  fi
+fi
+if [[ "$CURRENT_RETENTION" == "null" || "$CURRENT_RETENTION" == "unknown" || "$CURRENT_RETENTION" == "missing" ]]; then
+  echo "WARNING: cleanupPeriodDays is not set in ~/.claude/settings.json — Claude"
+  echo "will prune restored sessions older than 30 days on next launch."
+  echo ""
+  echo "Set it now (recommended):"
+  echo "  mkdir -p ~/.claude"
+  echo "  [[ -f $SETTINGS ]] || echo '{}' > $SETTINGS"
+  echo "  jq '. + {cleanupPeriodDays: 999999}' $SETTINGS > $SETTINGS.tmp && mv $SETTINGS.tmp $SETTINGS"
+  echo ""
+  read -p "Continue anyway? (y/n) " -n 1 -r; echo ""
+  [[ $REPLY =~ ^[Yy]$ ]] || exit 0
 fi
 
 read -p "Proceed with restore? (y/n) " -n 1 -r; echo ""
@@ -140,4 +147,4 @@ echo ""
 echo "=== Done ==="
 echo "Next: cd into a project directory and run 'claude --resume'."
 echo "      Run 'claude --login' to re-establish Anthropic auth."
-echo "      MCP servers using OAuth (Cloudflare, Linear, Gmail, etc.) may re-prompt on first use."
+echo "      OAuth-based MCP servers may re-prompt for auth on first use."

@@ -4,7 +4,7 @@ The missing migration guide for [Claude Code](https://docs.anthropic.com/en/docs
 
 Anthropic doesn't ship native session export ([issue #18645](https://github.com/anthropics/claude-code/issues/18645)). This repo is one engineer's working notes on the manual process: what to back up, what to restore, what to watch out for.
 
-**Tested on:** macOS Sequoia, Claude Code v2.1.x, Mac-to-Mac same-username migration. The different-username path is implemented but less battle-tested. Linux is not tested — the script's path-rewrite logic hardcodes `/Users/`, so the same-username case probably works and the different-username case won't without edits.
+**Tested on:** macOS Tahoe, Claude Code v2.1.x, Mac-to-Mac. Linux is not tested — the script's path-rewrite logic hardcodes `/Users/`, so the same-username case probably works and the different-username case won't without edits.
 
 ---
 
@@ -67,7 +67,7 @@ Three independent pieces have to move between machines. None of them touch each 
 | `todos/`, `shell-snapshots/`, `file-history/`, `paste-cache/`, `image-cache/`, `session-env/` | |
 | Recent-projects list (`~/.claude.json`'s `projects` map) | |
 
-**MCP OAuth caveat.** Server *configs* restore via `~/.claude.json` — you won't have to `claude mcp add` everything again. But OAuth-based servers (Cloudflare, Linear, Gmail) will likely re-prompt for auth on first use. API-key-based servers (Exa, Tavily, Context7 via package) work immediately. See [#52565](https://github.com/anthropics/claude-code/issues/52565) and [#58607](https://github.com/anthropics/claude-code/issues/58607).
+**MCP OAuth caveat.** Server *configs* restore via `~/.claude.json` — you won't have to `claude mcp add` everything again. OAuth-based servers may re-prompt for auth on first use; API-key-based servers typically don't. See [#52565](https://github.com/anthropics/claude-code/issues/52565) and [#58607](https://github.com/anthropics/claude-code/issues/58607) for context on OAuth persistence quirks.
 
 ---
 
